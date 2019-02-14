@@ -1,0 +1,19 @@
+
+
+
+Estimator: SVM
+Best params: {'clf__C': 1, 'clf__kernel': 'linear'}
+Best training accuracy: 0.9476164826286022
+Test set accuracy score for best params: 0.9445341949380721
+Test precision:0.9440388387741577
+Test recall:0.9445341949380721
+Test fscore:0.9439602647475285
+Test support:None
+
+
+
+Independent accuracy:0.8615288220551378
+Independent precision:0.8908000750685899
+Independent recall:0.8615288220551378
+Independent fscore:0.8736936314686107
+Independent support:None

@@ -1,0 +1,19 @@
+
+
+
+Estimator: decision_trees_classifier
+Best params: {'clf__criterion': 'entropy', 'clf__max_depth': 9, 'clf__min_samples_leaf': 6, 'clf__min_samples_split': 2}
+Best training accuracy: 0.8266900080797199
+Test set accuracy score for best params: 0.8228325255788906
+Test precision:0.8234860764765094
+Test recall:0.8228325255788906
+Test fscore:0.8202262989221374
+Test support:None
+
+
+
+Independent accuracy:0.4692982456140351
+Independent precision:0.7866287911612171
+Independent recall:0.4692982456140351
+Independent fscore:0.5555049368587133
+Independent support:None

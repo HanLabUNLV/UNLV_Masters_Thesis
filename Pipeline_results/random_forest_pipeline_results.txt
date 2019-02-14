@@ -1,0 +1,19 @@
+
+
+
+Estimator: random_forest
+Best params: {'clf__criterion': 'entropy', 'clf__max_depth': 10, 'clf__min_samples_leaf': 9, 'clf__min_samples_split': 2}
+Best training accuracy: 0.898868839213574
+Test set accuracy score for best params: 0.8933764135702746
+Test precision:0.8963491803864176
+Test recall:0.8933764135702746
+Test fscore:0.8814453176694075
+Test support:None
+
+
+
+Independent accuracy:0.6597744360902256
+Independent precision:0.7449519328115299
+Independent recall:0.6597744360902256
+Independent fscore:0.6749811776110486
+Independent support:None

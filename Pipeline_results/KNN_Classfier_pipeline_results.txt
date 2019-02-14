@@ -1,0 +1,19 @@
+
+
+
+Estimator: KNN_Classfier
+Best params: {'clf__n_neighbors': 4, 'clf__weights': 'distance'}
+Best training accuracy: 0.9060059251279289
+Test set accuracy score for best params: 0.901453957996769
+Test precision:0.9006212563131706
+Test recall:0.901453957996769
+Test fscore:0.8978247206212323
+Test support:None
+
+
+
+Independent accuracy:0.7531328320802005
+Independent precision:0.7862158432629124
+Independent recall:0.7531328320802005
+Independent fscore:0.7613929591431443
+Independent support:None
