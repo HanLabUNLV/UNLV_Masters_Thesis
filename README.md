@@ -1,2 +1,2 @@
 # UNLV_Masters_Thesis
-Applying machine learning techniques on tumor samples to identify tissue types.
+A machine Learning approach to identify primary tissue origin of cancer.
