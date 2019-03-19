@@ -23,9 +23,15 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.neighbors import KNeighborsClassifier
 import time
 import os
+from sklearn import svm
+
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+from sklearn.metrics import precision_recall_fscore_support as score
 
 global flag_standard_scaling
 global flag_pipeline_to_seclect_model
+global flag_create_pca_data
 
 class ProcessManager:
     def __init__(self):
@@ -381,9 +387,9 @@ def create_PCA_data_v3():
             print(key+" : Independent - After merge:" + str(merge_idata.shape))
 
     print("Process complete")
-    #print("Writing merged data to file...")
-    #merge_idata.to_csv('/data2/han_lab/sravani/PCA/IData_combined_PCA_data_v3.csv',index=False)
-    #merge_tdata.to_csv('/data2/han_lab/sravani/PCA/TCGA_combined_PCA_data_v3.csv',index=False)
+    print("Writing merged data to file...")
+    merge_idata.to_csv('/data2/han_lab/sravani/PCA/IData_combined_PCA_data_v3.csv',index=False)
+    merge_tdata.to_csv('/data2/han_lab/sravani/PCA/TCGA_combined_PCA_data_v3.csv',index=False)
 
     return merge_tdata,merge_idata
 
@@ -429,9 +435,23 @@ def create_PCA_data_v4(k):
             print(key+" : Independent - After merge:" + str(merge_idata.shape))
 
     print("Process complete")
-    #print("Writing merged data to file...")
+    print("Writing merged data to file...")
+    merge_idata.to_csv('/data2/han_lab/sravani/PCA/IData_combined_PCA_data_k'+str(k)+'_v4.csv', index=False)
+    merge_tdata.to_csv('/data2/han_lab/sravani/PCA/TCGA_combined_PCA_data_k'+str(k)+'_v4.csv', index=False)
 
     return merge_tdata,merge_idata
+
+def get_PCA_data_v3():
+    idata = pd.read_csv('/data2/han_lab/sravani/PCA/IData_combined_PCA_data_v3.csv', sep=',')
+    tcga = pd.read_csv('/data2/han_lab/sravani/PCA/TCGA_combined_PCA_data_v3.csv', sep=',')
+    return tcga, idata
+
+def get_PCA_data_v4(k):
+    idata=pd.read_csv('/data2/han_lab/sravani/PCA/IData_combined_PCA_data_k' + str(k) + '_v4.csv', sep=',')
+    tcga=pd.read_csv('/data2/han_lab/sravani/PCA/TCGA_combined_PCA_data_k' + str(k) + '_v4.csv',sep=',')
+    return tcga,idata
+
+
 
 def pipeline_model_selection(X_train,y_train,X_test,y_test):
     models_details={}
@@ -565,20 +585,40 @@ def pipeline_model_selection(X_train,y_train,X_test,y_test):
     model_name=grid_dict[best_clf]
     return best_gs,best_params,model_name,models_details
 
+def get_weighted_precision_recall_fscore_support(actual,predicted):
+    precision, recall, fscore, support = score(actual,predicted, average='weighted',labels=np.unique(actual))
+    return precision,recall,fscore,support
+
+
 def process(tests,k,file,test_name,predicted_labels_file):
     # tcga_pca,idata_pca=get_PCA_data()
 
 
-    if test=='mean_impute':
+    if test=='mean_impute' and flag_create_pca_data:
         tcga_pca, idata_pca = create_PCA_data_v3()
-    if test=='kNN_impute':
+        idata_X = idata_pca.drop(columns=['type'])
+        idata_y = idata_pca['type']
+    if test=='kNN_impute'and flag_create_pca_data:
         tcga_pca, idata_pca = create_PCA_data_v4(k)
+        idata_X = idata_pca.drop(columns=['type','barcode'])
+        idata_y = idata_pca['type']
 
+    if test=='mean_impute' and not flag_create_pca_data:
+        tcga_pca, idata_pca = get_PCA_data_v3()
+        idata_X = idata_pca.drop(columns=['type'])
+        idata_y = idata_pca['type']
+    if test=='kNN_impute' and not flag_create_pca_data:
+        tcga_pca, idata_pca = get_PCA_data_v4(k)
+        idata_X = idata_pca.drop(columns=['type', 'barcode'])
+        idata_y = idata_pca['type']
 
     X = tcga_pca.drop(columns=['type'])
     y = tcga_pca['type']
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    print(idata_pca.columns)
+
 
     model=None
     if flag_pipeline_to_seclect_model:
@@ -595,55 +635,104 @@ def process(tests,k,file,test_name,predicted_labels_file):
         print("\n Best parameters:")
         print(best_params)
         print(model_name)
+        model.fit(X_train, y_train)
+
+        # fitting on test
+        y_pred = model.predict(X_test)
+        report = classification_report(y_test, y_pred)
+        print(report)
+
+        accuracy0 = accuracy_score(y_test, y_pred)
+        print("Accuracy:", accuracy0)
+
+
+
+        idata_y_pred = model.predict(idata_X)
+        idata_report = classification_report(idata_y, idata_y_pred)
+        print(idata_report)
+
+        accuracy = accuracy_score(idata_y, idata_y_pred)
+        print("Accuracy:", accuracy)
+
+        model_name = 'Support Vector Machine'
+        best_params = str({'clf__C': 1, 'clf__kernel': 'linear'})
+
+        temp = pd.DataFrame()
+        temp['actual'] = idata_y
+        temp['predicted'] = idata_y_pred
+        temp['barcode'] = idata_pca['barcode']
+        temp.to_csv(predicted_labels_file, sep=',')
+
+        with open(file, 'a') as f:
+            f.write("\n\n==========================================================================================")
+            f.write("\n" + test_name)
+            f.write("\nTraining Dataset\nBest model:" + model_name + '\nModel Parameters:' + best_params)
+            f.write("\nClassification report on test data:\n")
+            f.write(str(report))
+            f.write('\n\nAccuracy:' + str(accuracy0))
+
+            f.write("\n\n\nIndependent Dataset\nBest model:" + model_name + '\nModel Parameters:' + best_params)
+            f.write("\nClassification report on independent data:\n")
+            f.write(str(idata_report))
+            f.write('\n\nAccuracy:' + str(accuracy))
 
     else:
 
-        from sklearn import svm
-        model = svm.SVC(C=1, kernel='linear', random_state=42)
+        #from sklearn import svm
+        #model = svm.SVC(C=1, kernel='linear', random_state=42)
 
-    model.fit(X_train, y_train)
-
-    #fitting on test
-    y_pred=model.predict(X_test)
-    report = classification_report(y_test, y_pred)
-    print(report)
-
-    accuracy0 = accuracy_score(y_test, y_pred)
-    print("Accuracy:", accuracy0)
-
-    idata_X=idata_pca.drop(columns=['type','barcode'])
-    idata_y=idata_pca['type']
-
+        algorithm = {'svm': {'name': 'SVM',
+                             'best': svm.SVC(C=1, kernel='linear', random_state=42)},
+                     'random_forest': {'name': 'random_forest',
+                                       'best': RandomForestClassifier(random_state=42, criterion='entropy',
+                                                                      max_depth=10, min_samples_leaf=2,
+                                                                      min_samples_split=8)},
+                     'decision_trees': {'name': 'decision_trees',
+                                        'best': DecisionTreeClassifier(criterion='entropy', max_depth=10,
+                                                                       min_samples_leaf=6, min_samples_split=2,
+                                                                       random_state=42)}
+                     }
 
 
-    idata_y_pred = model.predict(idata_X)
-    idata_report = classification_report(idata_y, idata_y_pred)
-    print(idata_report)
 
-    accuracy = accuracy_score(idata_y, idata_y_pred)
-    print("Accuracy:", accuracy)
+        for key, val in algorithm.items():
+            model = val['best']
+            model.fit(X_train, y_train)
+            train_y_pred = model.predict(X_train)
+            test_y_pred = model.predict(X_test)
+            idata_y_pred = model.predict(idata_X)
+            idata_report = classification_report(idata_y, idata_y_pred)
+            print(idata_report)
+            precision, recall, fscore, support = get_weighted_precision_recall_fscore_support(y_test, test_y_pred)
+            i_precision, i_recall, i_fscore, i_support = get_weighted_precision_recall_fscore_support(idata_y, idata_y_pred)
+            print(precision, recall, fscore, support)
+            print(i_precision, i_recall, i_fscore, i_support)
+            with open('/data2/han_lab/sravani/PCA/PCA_' + val['name'] + '_results.txt', 'w') as f:
+                f.write("\nIndependent Dataset\nBest model:" + val['name'] + '\nModel Parameters:' + str(val['best']))
+                f.write("\nClassification report on independent data:\n")
+                f.write(str(idata_report))
+                f.write('\n\nAccuracy:' + str(accuracy_score(idata_y, idata_y_pred)))
+                f.write('\n\n\nEstimator: ' + str(val['name']) +
+                        '\nBest params: ' + str(val['best']) +
+                        '\nBest training accuracy: ' + str(accuracy_score(train_y_pred, y_train)) +
+                        '\nTest set accuracy score for best params: ' + str(accuracy_score(test_y_pred, y_test)) +
+                        '\nTest precision:' + str(precision) +
+                        '\nTest recall:' + str(recall) +
+                        '\nTest fscore:' + str(fscore) +
+                        '\nTest support:' + str(support) +
+                        '\n\n\n\nIndependent accuracy:' + str(accuracy_score(idata_y, idata_y_pred)) +
+                        '\nIndependent precision:' + str(i_precision) +
+                        '\nIndependent recall:' + str(i_recall) +
+                        '\nIndependent fscore:' + str(i_fscore) +
+                        '\nIndependent support:' + str(i_support) +
+                        '\nClassification report:' + str(classification_report(idata_y, idata_y_pred))
+                        )
 
-    model_name = 'Support Vector Machine'
-    best_params = str({'clf__C': 1, 'clf__kernel': 'linear'})
-
-    temp=pd.DataFrame()
-    temp['actual']=idata_y
-    temp['predicted']=idata_y_pred
-    temp['barcode']=idata_pca['barcode']
-    temp.to_csv(predicted_labels_file,sep=',')
-
-    with open(file, 'a') as f:
-        f.write("\n\n==========================================================================================")
-        f.write("\n"+test_name)
-        f.write("\nTraining Dataset\nBest model:" + model_name + '\nModel Parameters:' + best_params)
-        f.write("\nClassification report on test data:\n")
-        f.write(str(report))
-        f.write('\n\nAccuracy:' + str(accuracy0))
-
-        f.write("\n\n\nIndependent Dataset\nBest model:" + model_name + '\nModel Parameters:' + best_params)
-        f.write("\nClassification report on independent data:\n")
-        f.write(str(idata_report))
-        f.write('\n\nAccuracy:' + str(accuracy))
+            temp = pd.DataFrame()
+            temp['actual'] = idata_y
+            temp['predicted'] = idata_y_pred
+            #temp.index = idata_pca.index
+            temp.to_csv('/data2/han_lab/sravani/PCA/PCA_' + val['name'] + '_labels_predicted.csv')
 
 def process_for_running_pipeline(tests,k,file,test_name):
     # tcga_pca,idata_pca=get_PCA_data()
@@ -683,6 +772,7 @@ predicted_labels_file='/data2/han_lab/sravani/PCA/labels_predicted_k_1.csv'
 
 flag_standard_scaling=False
 flag_pipeline_to_seclect_model=False #true to run pipeline, false works on best model
+flag_create_pca_data=False #flase reads data from file
 for test in tests:
 
     if test == 'mean_impute':
@@ -695,12 +785,13 @@ for test in tests:
 
 print("time take:",time.time()-t1)
 
-
+'''
 import os
 cmd = 'scp '+predicted_labels_file+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
 os.system(cmd)
 cmd = 'scp '+results_file+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
 os.system(cmd)
+'''
 '''
 import subprocess
 p = subprocess.Popen(["scp", "my_file.txt", "username@server:path"])
@@ -711,3 +802,31 @@ sts = os.waitpid(p.pid, 0)
 '''
 
 '''
+
+
+
+
+import os
+file='/data2/han_lab/sravani/PCA/PCA_SVM_results.txt'
+cmd1 = 'scp '+file+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
+file2='/data2/han_lab/sravani/PCA/PCA_SVM_labels_predicted.csv'
+cmd2 = 'scp '+file2+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
+os.system(cmd1)
+os.system(cmd2)
+
+
+file='/data2/han_lab/sravani/PCA/PCA_random_forest_results.txt'
+cmd1 = 'scp '+file+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
+file2='/data2/han_lab/sravani/PCA/PCA_random_forest_labels_predicted.csv'
+cmd2 = 'scp '+file2+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
+os.system(cmd1)
+os.system(cmd2)
+
+
+file='/data2/han_lab/sravani/PCA/PCA_decision_trees_results.txt'
+cmd1 = 'scp '+file+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
+file2='/data2/han_lab/sravani/PCA/PCA_decision_trees_labels_predicted.csv'
+cmd2 = 'scp '+file2+' gannavar@bobby.cs.unlv.edu://home/gannavar/UNLV_Thesis/'
+os.system(cmd1)
+os.system(cmd2)
+

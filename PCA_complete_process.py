@@ -29,15 +29,23 @@ def get_train_data(chrm,training_labels):
     d = pd.read_csv('/data2/han_lab/sravani/Data/without_NA/' + chrm + '_withoutNA.csv')
     d = d.set_index('Composite')
     dT = d.T  # transpose it
-    print "TCGA withoutNA Shape:" + str(dT.shape)
+    print("TCGA withoutNA Shape:" + str(dT.shape))
 
     # drop probes with mean <0.2
     dT = dT[dT.columns[dT.mean(axis=0) > 0.2]]
-    print "TCGA after removing row means <0.2 Shape:" + str(dT.shape)
+    print("TCGA after removing row means <0.2 Shape:" + str(dT.shape))
+
+
 
     # merge dfT and labels
     data = pd.concat([dT, training_labels], axis=1)
-    print "Training data shape:"+ str(data.shape)
+    print("Training data shape:"+ str(data.shape))
+
+    # removing the labels whose count is less than 100 before creating the model
+    temp = data.groupby(['type']).size().reset_index()
+    filter = temp[temp[0] > 100]
+    filter_data = data[data['type'].isin(filter['type'])]
+    print(filter_data.groupby(by=['type']).size())
 
     # drop few uneccesary columns
     X = data.reset_index().drop(columns=['Barcode', 'Label', 'Barcode1', 'TSS', 'Center', 'Plate', 'type'])
@@ -56,7 +64,7 @@ def get_independent_data(chrm,idata_labels,probes):
     test = df2.T
     x=idata_labels[idata_labels.index.isin(test.index)]
     data = pd.concat([test, x], axis=1)
-    print "Independent data shape:"+ str(data.shape)
+    print("Independent data shape:"+ str(data.shape))
     '''
     #display rows with Null values
     df1 = data[data.isnull().any(axis=1)]
@@ -291,18 +299,30 @@ def pipeline_model_selection(X_train,y_train,X_test,y_test):
     return best_gs,best_params,model_name
 
 
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+from sklearn.metrics import precision_recall_fscore_support as score
+def get_weighted_precision_recall_fscore_support(actual,predicted):
+    precision, recall, fscore, support = score(actual,predicted, average='weighted',labels=np.unique(actual))
+    return precision,recall,fscore,support
+
 #tcga_pca,idata_pca=get_PCA_data()
 tcga_pca,idata_pca=create_PCA_data()
 
+'''
 #removing the labels whose count is less than 100 before creating the model
 temp=tcga_pca.groupby(['type']).size().reset_index()
 filter=temp[temp[0]>100]
 filter_data=tcga_pca[tcga_pca['type'].isin(filter['type'])]
 print(filter_data.groupby(by=['type']).size())
-
+'''
 # Split into X and Y
-X =filter_data.drop(columns=['type'])
-y = filter_data['type']
+X =tcga_pca.drop(columns=['type'])
+y = tcga_pca['type']
+# Split into X and Y
+idata_X =idata_pca.drop(columns=['type'])
+idata_y = idata_pca['type']
+
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -316,7 +336,7 @@ print("\nTest:")
 print(test_labels)
 
 
-model,best_params,model_name=pipeline_model_selection(X_train,y_train,X_test,y_test)
+#model,best_params,model_name=pipeline_model_selection(X_train,y_train,X_test,y_test)
 
 '''
 #load model from file
@@ -325,15 +345,68 @@ filename='/data2/han_lab/sravani/PCA/best_gs_pipeline.pkl'
 #model = pickle.load(open('/data2/han_lab/sravani/PCA/best_gs_pipeline.pkl', 'rb'))
 with open(filename, 'rb') as file:
     pickle_model = pickle.load(file)
-
-
+'''
 from sklearn import svm
+
+algorithm={'svm':{'name':'SVM',
+                    'best':svm.SVC(C=1,kernel='linear',random_state=42)},
+           'random_forest':{'name':'random_forest',
+                            'best':RandomForestClassifier(random_state=42,criterion='entropy',
+                                                        max_depth= 10,min_samples_leaf= 9,
+                                                        min_samples_split=2)},
+           'decision_trees':{'name':'decision_trees',
+                             'best':DecisionTreeClassifier(criterion='entropy',max_depth=9,
+                                                                  min_samples_leaf=6,min_samples_split=2,
+                                                                  random_state=42)}
+           }
+'''
 model1=svm.SVC(C=1,kernel='linear',random_state=42)
 model1.fit(X_train,y_train)
+
 idata_y_pred = model1.predict(idata_X)
 idata_report = classification_report(idata_y, idata_y_pred)
 print(idata_report)
+'''
+for key,val in algorithm.items():
+    model=val['best']
+    model.fit(X_train, y_train)
+    train_y_pred=model.predict(X_train)
+    test_y_pred=model.predict(X_test)
+    idata_y_pred = model.predict(idata_X)
+    idata_report = classification_report(idata_y, idata_y_pred)
+    print(idata_report)
+    precision, recall, fscore, support = get_weighted_precision_recall_fscore_support(y_test, test_y_pred)
+    i_precision, i_recall, i_fscore, i_support = get_weighted_precision_recall_fscore_support(idata_y, idata_y_pred)
+    print(precision, recall, fscore, support)
+    print(i_precision, i_recall, i_fscore, i_support)
+    with open('/data2/han_lab/sravani/PCA/PCA_'+val['name']+'_results.txt', 'w') as f:
+        f.write("\nIndependent Dataset\nBest model:" + val['name'] + '\nModel Parameters:' + str(val['best']))
+        f.write("\nClassification report on independent data:\n")
+        f.write(str(idata_report))
+        f.write('\n\nAccuracy:' + str(accuracy_score(idata_y, idata_y_pred)))
+        f.write('\n\n\nEstimator: ' + str(val['name']) +
+                '\nBest params: ' + str(val['best']) +
+                '\nBest training accuracy: ' + str(accuracy_score(train_y_pred, y_train)) +
+                '\nTest set accuracy score for best params: ' + str(accuracy_score(test_y_pred, y_test)) +
+                '\nTest precision:' + str(precision) +
+                '\nTest recall:' + str(recall) +
+                '\nTest fscore:' + str(fscore) +
+                '\nTest support:' + str(support)+
+                '\n\n\n\nIndependent accuracy:' + str(accuracy_score(idata_y, idata_y_pred)) +
+                '\nIndependent precision:' + str(i_precision) +
+                '\nIndependent recall:' + str(i_recall) +
+                '\nIndependent fscore:' + str(i_fscore) +
+                '\nIndependent support:' + str(i_support) +
+                '\nClassification report:' + str(classification_report(idata_y, idata_y_pred))
+                )
 
+    temp = pd.DataFrame()
+    temp['actual'] = idata_y
+    temp['predicted'] = idata_y_pred
+    temp.index = idata_pca.index
+    temp.to_csv('/data2/han_lab/sravani/PCA/PCA_' + val['name'] + '_labels_predicted.csv')
+    # print(temp.iloc[0:5,0:5])
+'''
 accuracy=accuracy_score(idata_y, idata_y_pred)
 print("Accuracy:",accuracy)
 model_name='Support Vector Machine'   
@@ -343,6 +416,7 @@ with open('/data2/han_lab/sravani/PCA/independent_data_classification_report.txt
     f.write("\nClassification report on independent data:\n")
     f.write(str(idata_report))
     f.write('\n\nAccuracy:'+str(accuracy))
+'''
 '''
 
 idata_X=idata_pca.drop(columns=['TCGA Label '])
@@ -359,3 +433,4 @@ with open('/data2/han_lab/sravani/PCA/independent_data_classification_report.txt
     f.write(str(idata_report))
     f.write('\n\nAccuracy:'+str(accuracy))
 
+'''
